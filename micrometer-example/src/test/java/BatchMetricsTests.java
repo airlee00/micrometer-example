@@ -15,6 +15,10 @@
  */
 
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -23,21 +27,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
-import io.micrometer.core.instrument.Clock;
-import io.micrometer.core.instrument.Counter;
-import io.micrometer.core.instrument.Gauge;
-import io.micrometer.core.instrument.Meter;
-import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.Metrics;
-import io.micrometer.core.instrument.Timer;
-import io.micrometer.core.instrument.composite.CompositeMeterRegistry;
-import io.micrometer.core.instrument.dropwizard.DropwizardConfig;
-import io.micrometer.core.instrument.dropwizard.DropwizardMeterRegistry;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import io.micrometer.core.instrument.util.HierarchicalNameMapper;
-
 import org.junit.Test;
-
 import org.springframework.batch.core.ExitStatus;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.JobExecution;
@@ -59,9 +49,19 @@ import org.springframework.context.annotation.Configuration;
 import com.codahale.metrics.ConsoleReporter;
 import com.codahale.metrics.MetricRegistry;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import io.micrometer.boot2.samples.JobLoggingListener;
+import io.micrometer.boot2.samples.MetricsListener;
+import io.micrometer.core.instrument.Clock;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.Meter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Metrics;
+import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.composite.CompositeMeterRegistry;
+import io.micrometer.core.instrument.dropwizard.DropwizardConfig;
+import io.micrometer.core.instrument.dropwizard.DropwizardMeterRegistry;
+import io.micrometer.core.instrument.util.HierarchicalNameMapper;
 
 public class BatchMetricsTests {
 
@@ -127,7 +127,6 @@ public class BatchMetricsTests {
 		// Or via the builder
 		Counter sooooCounter = Counter.builder("presentation.filler.words")
 			.tag("word", "soooo…")
-			.tag("word", "fooooo…")
 			.register(meterRegistry);
 		sooooCounter.increment(2);
 
@@ -153,7 +152,7 @@ public class BatchMetricsTests {
 		};
 
 		Stream.iterate(0, n -> n + 1)
-        .limit(10)
+        .limit(2)
         .forEach(x -> System.out.println(slideTimer.record(slideSupplier)));
 		
 
@@ -186,8 +185,11 @@ public class BatchMetricsTests {
 		System.out.println(usedMemory.value());
 		consoleReporter.report();
 
-	
+		
+		//meterRegistry.find("my.tasklet.timer").timer().
+		
 		List<Meter> meters = Metrics.globalRegistry.getMeters();
+		System.out.println("======>" + meters.size());
 		assertTrue(meters.size() >= EXPECTED_SPRING_BATCH_METRICS);
 
 		try {
@@ -277,6 +279,11 @@ public class BatchMetricsTests {
 		}
 
 		@Bean
+		public MetricsListener jobLoggingListener() {
+			return new MetricsListener(Metrics.globalRegistry);
+		}
+		
+		@Bean
 		public Step step1() {
 			return stepBuilderFactory.get("step1")
 					.tasklet((contribution, chunkContext) -> RepeatStatus.FINISHED)
@@ -285,6 +292,11 @@ public class BatchMetricsTests {
 
 		@Bean
 		public ItemReader<Integer> itemReader() {
+			try {
+				Thread.sleep(2000);
+			} catch (InterruptedException e) {
+				e.printStackTrace();
+			}
 			return new ListItemReader<>(Arrays.asList(1, 2, 3, 4, 5, 6, 7, 8, 9, 10));
 		}
 
@@ -308,7 +320,7 @@ public class BatchMetricsTests {
 
 		@Bean
 		public Job job() {
-			return jobBuilderFactory.get("job")
+			return jobBuilderFactory.get("job").listener(jobLoggingListener())
 					.start(step1())
 					.next(step2())
 					.build();
